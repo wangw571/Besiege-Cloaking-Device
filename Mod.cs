@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections;
 using System.Collections.Generic;
 using spaar.ModLoader;
@@ -9,17 +9,17 @@ namespace Blocks
 {
     public class CloakingDeviceMod : BlockMod
     {
-        public override Version Version { get { return new Version("1.4"); } }
+        public override Version Version { get { return new Version("1.8"); } }
         public override string Name { get { return "Cloaking_Device_Mod"; } }
         public override string DisplayName { get { return "Cloaking Device Mod"; } }
         public override string BesiegeVersion { get { return "v0.27"; } }
         public override string Author { get { return "覅是"; } }
-        protected Block CloakDevice = new Block()
+        protected Block ImprovedCloakDevice = new Block()
             ///模块ID
             .ID(528)
 
             ///模块名称
-            .BlockName("Cloaking Device I​")
+            .BlockName("Improved Cloaking Device​")
 
             ///模型信息
             .Obj(new List<Obj> { new Obj("turret.obj", //Obj
@@ -36,7 +36,7 @@ namespace Blocks
 
             ///没啥好说的。
             .Components(new Type[] {
-                                    typeof(CloakScript),
+                                    typeof(IMPCloakScript),
             })
 
             ///给搜索用的关键词
@@ -86,7 +86,8 @@ namespace Blocks
             .NeededResources(new List<NeededResource> {
                                 new NeededResource(ResourceType.Audio,"Cloaking.ogg"),
                                 new NeededResource(ResourceType.Audio,"Decloaking.ogg"),
-                                new NeededResource(ResourceType.Texture,"Speed_Bump.png")
+                                new NeededResource(ResourceType.Texture,"Speed_Bump.png"),
+                                new NeededResource(ResourceType.Texture,"ALL BLACK.jpg")
             })
 
             ///连接点
@@ -105,14 +106,17 @@ namespace Blocks
 
         public override void OnLoad()
         {
-            LoadBlock(CloakDevice);//加载该模块
+            LoadBlock(ImprovedCloakDevice);//加载该模块
         }
         public override void OnUnload() { }
     }
 
-    public class CloakScript : BlockScript
+    public class IMPCloakScript : BlockScript
     {
         protected MKey Key1;
+        protected MSlider Speed;
+        protected MSlider Range;
+        protected MSlider Cooldown;
 
         private AudioSource CloakAudio;
         private AudioSource DecloakAudio;
@@ -130,6 +134,10 @@ namespace Blocks
             Key1 = AddKey("Activation", //按键信息
                                  "ACT",           //名字
                                  KeyCode.P);       //默认按键
+
+            Speed = AddSlider("Time for changing", "TFC", 3, 0, 10);
+            Range = AddSlider("Size Of Field", "Size",10, 5, 50);
+            Cooldown = AddSlider("Duration", "DUR", 5, 1, 10);
         }
 
         protected virtual IEnumerator UpdateMapper()
@@ -163,8 +171,8 @@ namespace Blocks
             DecloakAudio.clip = resources["Decloaking.ogg"].audioClip;
             DecloakAudio.loop = false;
             DecloakAudio.volume = 1f;
-            FieldSize = 10;
-            CoolDownTime = 2;
+            FieldSize = Range.Value;
+            CoolDownTime = Cooldown.Value;
             InvTex = new Material(Shader.Find("FX/Glass/Stained BumpDistort"));
             //InvTex = new Material(Shader.Find("Transparent/Diffuse"));
             InvTex.color = new Color(1, 1, 1, 0);
@@ -176,8 +184,10 @@ namespace Blocks
                     {
                     REDer.gameObject.AddComponent<BeingCloakedScript>();
                     REDer.gameObject.GetComponent<BeingCloakedScript>().InvisibleMat = (InvTex);
+                    REDer.gameObject.GetComponent<BeingCloakedScript>().InvisibleMat.mainTexture = (InvTex.mainTexture);
+                    REDer.gameObject.GetComponent<BeingCloakedScript>().duration = Speed.Value;
                     //REDer.gameObject.tag += "Cloaked";
-                    }
+                }
                 }
             
         }
@@ -189,6 +199,7 @@ namespace Blocks
                 Activated = !Activated;
                 ReactivationTimer = 0;
                 if(!Activated) DecloakAudio.Play();
+                else CloakAudio.Play();
             }
         }
 
@@ -196,17 +207,15 @@ namespace Blocks
         {
             ReactivationTimer += Time.fixedDeltaTime;
 
-
             if (Activated)
             {
-                CloakAudio.Play();
-                size = Math.Max(Math.Max(this.transform.localScale.y, this.transform.localScale.z), this.transform.localScale.x) * FieldSize * Mathf.Min(ReactivationTimer, 3) / 3;
+                size = Math.Max(Math.Max(this.transform.localScale.y, this.transform.localScale.z), this.transform.localScale.x) * FieldSize * Mathf.Min(ReactivationTimer, Speed.Value) / Speed.Value;
             }
             else {
                 size = FieldSize - Math.Max(
                     Math.Max(this.transform.localScale.y,this.transform.localScale.z),
                     this.transform.localScale.x)
-                    * FieldSize * Mathf.Min(ReactivationTimer,3) / 3;
+                    * FieldSize * Mathf.Min(ReactivationTimer, Speed.Value) / Speed.Value;
             }
 
             foreach (BeingCloakedScript BCS in FindObjectsOfType<BeingCloakedScript>())
@@ -224,45 +233,55 @@ namespace Blocks
     {
         private Material OriginalMat;
         public Material InvisibleMat;
+        private Color OrigColor = new Color();
+        public float duration = 3;
         public Vector3 MyPos;
         public bool InsideAField = false;
         public float 渐变数值;
+        public Vector2 BumpOFFSET;
+        public Vector2 BumpOFFSET惯性;
         void Start()
         {
             MyPos = this.transform.position;
             渐变数值 = 0;
             InsideAField = false;
             OriginalMat = new Material(Material.Instantiate(GetComponent<Renderer>().material));
-            GetComponent<Renderer>().material.color = Color.white;
+            OrigColor = GetComponent<Renderer>().material.color;
+            //GetComponent<Renderer>().material.color = Color.white;
             //GetComponent<Renderer>().material.mainTexture = InvisibleMat.mainTexture;
             //GetComponent<Renderer>().material.color = new Color(1, 1, 1, 0);
+            BumpOFFSET = Vector2.zero;
+            BumpOFFSET惯性 = Vector2.zero;
             DontDestroyOnLoad(InvisibleMat);
             DontDestroyOnLoad(OriginalMat);
         }
         void FixedUpdate()
         {
+            BumpOFFSET惯性 += new Vector2(UnityEngine.Random.value - 0.5f, UnityEngine.Random.value - 0.5f) * 0.001f;
+            BumpOFFSET惯性 = new Vector2(Mathf.Clamp(BumpOFFSET惯性.x, -0.02f, 0.02f), Mathf.Clamp(BumpOFFSET惯性.y, -0.02f, 0.02f));
+            BumpOFFSET += BumpOFFSET惯性;
             MyPos = this.transform.position;
-            if (InsideAField) 渐变数值 += Time.fixedDeltaTime / 3;
-            if (!InsideAField) 渐变数值 -= Time.fixedDeltaTime / 3;
+            if (InsideAField) 渐变数值 += Time.fixedDeltaTime / duration;
+            if (!InsideAField) 渐变数值 -= Time.fixedDeltaTime / duration;
             渐变数值 = Mathf.Clamp01(渐变数值);
             if(InsideAField)
             {
-                Cloaking(渐变数值 * 2);
+                Cloaking(渐变数值 * 2, OrigColor, BumpOFFSET);
             }
             else
             {
-                Decloaking(渐变数值 * 2);
+                Decloaking(渐变数值 * 2,OrigColor);
             }
             InsideAField = false;
         }
-        void Decloaking(float ProgressTimesBy2)
+        void Decloaking(float ProgressTimesBy2, Color OriginalColor)
         {
             ProgressTimesBy2 = Mathf.Clamp(ProgressTimesBy2, 0, 2);
             if (ProgressTimesBy2 > 1)
-                GetComponent<Renderer>().material.color = new Color(ProgressTimesBy2 - 1, ProgressTimesBy2 - 1, ProgressTimesBy2 - 1, ProgressTimesBy2 - 1);
+                GetComponent<Renderer>().material.color = Color.white * (ProgressTimesBy2 - 1);
             else if (ProgressTimesBy2 > 0)
             {
-                GetComponent<Renderer>().material.color = new Color(1 - ProgressTimesBy2, 1 - ProgressTimesBy2, 1 - ProgressTimesBy2, 1 - ProgressTimesBy2);
+                GetComponent<Renderer>().material.color = OriginalColor * (1 - ProgressTimesBy2);
                 if (GetComponent<Renderer>().material.shader != OriginalMat.shader)
                 {
                     GetComponent<Renderer>().material.shader = OriginalMat.shader;
@@ -271,13 +290,13 @@ namespace Blocks
                 }
             }
         }
-        void Cloaking(float ProgressTimesBy2)
+        void Cloaking(float ProgressTimesBy2, Color OriginalColor, Vector2 BumpMapOffSet)
         {
             if (ProgressTimesBy2 < 1)
-                GetComponent<Renderer>().material.color = new Color( 1 - ProgressTimesBy2, 1 - ProgressTimesBy2, 1 - ProgressTimesBy2, 1 - ProgressTimesBy2);
+                GetComponent<Renderer>().material.color = OriginalColor * (1 - ProgressTimesBy2);
             else if (ProgressTimesBy2 < 2)
             {
-                GetComponent<Renderer>().material.color = new Color(ProgressTimesBy2 - 1,ProgressTimesBy2 - 1,ProgressTimesBy2 - 1,ProgressTimesBy2 - 1);
+                GetComponent<Renderer>().material.color = Color.white * ( ProgressTimesBy2 - 1);
                 if(GetComponent<Renderer>().material.shader != InvisibleMat.shader)
                 {
                     GetComponent<Renderer>().material.shader = InvisibleMat.shader;
@@ -285,7 +304,7 @@ namespace Blocks
                     GetComponent<Renderer>().material.SetTexture("_BumpMap", InvisibleMat.mainTexture);
                 }
             }
-
+            GetComponent<Renderer>().material.SetTextureOffset("_BumpMap", BumpMapOffSet);
         }
     }
     public class CloakFieldScript : MonoBehaviour
