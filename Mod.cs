@@ -9,7 +9,7 @@ namespace Blocks
 {
     public class CloakingDeviceMod : BlockMod
     {
-        public override Version Version { get { return new Version("1.9"); } }
+        public override Version Version { get { return new Version("2.0"); } }
         public override string Name { get { return "Cloaking_Device_Mod"; } }
         public override string DisplayName { get { return "Cloaking Device Mod"; } }
         public override string BesiegeVersion { get { return "v0.27"; } }
@@ -64,7 +64,7 @@ namespace Blocks
             .NeededResources(new List<NeededResource> {
                                 new NeededResource(ResourceType.Audio,"Cloaking.ogg"),
                                 new NeededResource(ResourceType.Audio,"Decloaking.ogg"),
-                                new NeededResource(ResourceType.Texture,"Speed_Bump.png"),
+                                new NeededResource(ResourceType.Texture,"Cloak disturb.png"),
                                 new NeededResource(ResourceType.Texture,"ALL BLACK.jpg")
             })
 
@@ -100,6 +100,7 @@ namespace Blocks
         private Material InvTex;
         private float CoolDownTime;
         public float 记录器 = 0;
+        public GameObject FieldDetector;
 
         public override void SafeAwake()
         {
@@ -107,8 +108,8 @@ namespace Blocks
                                  "ACT",           //名字
                                  KeyCode.P);       //默认按键
 
-            Speed = AddSlider("Time for changing", "TFC", 3, 0, 10);
-            Range = AddSlider("Size Of Field", "Size",10, 5, 50);
+            Speed = AddSlider("Time for changing", "TFC", 3, 0.1f, 10);
+            Range = AddSlider("Size Of Field", "Size",10, 1, 80);
             Cooldown = AddSlider("Duration", "DUR", 5, 1, 10);
         }
 
@@ -148,12 +149,19 @@ namespace Blocks
             InvBumpTex = new Material(Shader.Find("FX/Glass/Stained BumpDistort"));
             
             InvBumpTex.color = new Color(1, 1, 1, 0);
-            InvBumpTex.mainTexture = resources["Speed_Bump.png"].texture;
-            InvBumpTex.SetTexture("_BumpMap", resources["Speed_Bump.png"].texture);
+            InvBumpTex.mainTexture = resources["Cloak disturb.png"].texture;
+            InvBumpTex.SetTexture("_BumpMap", resources["Cloak disturb.png"].texture);
 
             InvTex = new Material(Shader.Find("Transparent/Diffuse"));
             InvTex.color = new Color(1, 1, 1, 0);
             InvTex.mainTexture = resources["ALL BLACK.jpg"].texture;
+
+            FieldDetector = GameObject.CreatePrimitive(PrimitiveType.Sphere);
+            FieldDetector.name = "FieldDetector";
+            FieldDetector.GetComponent<SphereCollider>().isTrigger = true;
+            FieldDetector.transform.position = this.transform.position;
+            Destroy(FieldDetector.GetComponent<Renderer>());
+            FieldDetector.AddComponent<CloakFieldScript>();
 
             foreach (MeshRenderer REDer in Machine.Active().SimulationMachine.GetComponentsInChildren<MeshRenderer>())
                 {
@@ -185,28 +193,31 @@ namespace Blocks
         protected override void OnSimulateFixedUpdate()
         {
             ReactivationTimer += Time.fixedDeltaTime;
-
+            
             if (Activated)
             {
-                size = Math.Max(Math.Max(this.transform.localScale.y, this.transform.localScale.z), this.transform.localScale.x) * FieldSize * Mathf.Min(ReactivationTimer, Speed.Value) / Speed.Value;
+                size =  FieldSize * Mathf.Min(ReactivationTimer, Speed.Value) / Speed.Value;
             }
             else {
-                size = FieldSize - Math.Max(
-                    Math.Max(this.transform.localScale.y,this.transform.localScale.z),
-                    this.transform.localScale.x)
-                    * FieldSize * Mathf.Min(ReactivationTimer, Speed.Value) / Speed.Value;
+                size = FieldSize - FieldSize * Mathf.Min(ReactivationTimer, Speed.Value) / Speed.Value;
             }
             if (Activated || ReactivationTimer < Speed.Value)
             {
-                foreach (BeingCloakedScript BCS in FindObjectsOfType<BeingCloakedScript>())
+                FieldDetector.transform.localScale = Vector3.one * size;
+                FieldDetector.transform.position = this.transform.position;
+                /*foreach (BeingCloakedScript BCS in FindObjectsOfType<BeingCloakedScript>())
                 {
                     if ((BCS.MyPos - this.transform.position).sqrMagnitude < size * size)
                     {
                         progress += Time.fixedDeltaTime / 3;
                         BCS.InsideAField = true;
                     }
-                }
-            Debug.Log(Activated + " " + ReactivationTimer);
+                }*/
+
+            }
+            else
+            {
+                FieldDetector.transform.position = Vector3.one * -10;
             }
         }
     }
@@ -339,6 +350,25 @@ namespace Blocks
                 }
             }
             GetComponent<Renderer>().material.SetTextureOffset("_BumpMap", BumpMapOffSet);
+        }
+    }
+    public class CloakFieldScript:MonoBehaviour
+    {
+        void Update()
+        {
+            if (!AddPiece.isSimulating) Destroy(this.gameObject);
+        }
+        void OnTriggerStay(Collider col)
+        {
+            try {
+                foreach (BeingCloakedScript cloakingObject in col.gameObject.GetComponentInParent<MachineTrackerMyId>().GetComponentsInChildren<BeingCloakedScript>())
+                {
+                    cloakingObject.InsideAField = true;
+                }
+            }
+            catch
+            {
+            }
         }
     }
 }
